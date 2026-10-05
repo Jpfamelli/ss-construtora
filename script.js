@@ -354,10 +354,12 @@
   else (() => {
     const pre = $('.pre');
     // JS atrasado (celular lento): a rede de segurança do CSS já está tirando a
-    // abertura; em vez de montar o piso de novo, ela some de uma vez
+    // abertura; em vez de montar o piso de novo, ela some de uma vez.
+    // `ja` = quanto tempo a abertura já está na tela (a preSai começa quando a .pre
+    // ganha estilo); a chegada do HTML só serve de reserva sem getAnimations
     const rede = pre.getAnimations ? pre.getAnimations().find(a => a.animationName === 'preSai') : null;
     const nav = performance.getEntriesByType ? performance.getEntriesByType('navigation')[0] : null;
-    const ja = Math.max((rede && rede.currentTime) || 0, nav ? performance.now() - nav.responseStart : 0);
+    const ja = rede ? (rede.currentTime || 0) : (nav ? performance.now() - nav.responseStart : 0);
     if (ja > 2400 || (rede && rede.playState === 'finished')) {
       pre.style.transition = 'opacity .35s ease';
       pre.style.opacity = '0';
@@ -997,12 +999,12 @@
 
     Object.keys(campos).forEach(k => {
       // seleciona tudo no foco (digitar substitui a medida); o mouseup do clique
-      // que deu o foco desfaria a seleção, então só esse é anulado
-      let recemFocado = false;
-      campos[k].addEventListener('focus', () => { campos[k].select(); recemFocado = true; });
-      campos[k].addEventListener('mouseup', e => { if (recemFocado) e.preventDefault(); recemFocado = false; });
-      campos[k].addEventListener('keydown', () => { recemFocado = false; });
-      campos[k].addEventListener('blur', () => { recemFocado = false; });
+      // que deu o foco desfaria a seleção, então só esse é anulado. Foco por Tab
+      // ou pelo rótulo não arma nada: o clique seguinte posiciona o cursor
+      let porClique = false;
+      campos[k].addEventListener('mousedown', () => { porClique = document.activeElement !== campos[k]; });
+      campos[k].addEventListener('focus', () => campos[k].select());
+      campos[k].addEventListener('mouseup', e => { if (porClique) e.preventDefault(); porClique = false; });
       campos[k].addEventListener('input', () => { const v = ler(campos[k].value); if (Number.isFinite(v) && v >= MIN && v <= MAX) { medida(k, v, 'campo'); render(false); } });
       campos[k].addEventListener('change', () => { const v = ler(campos[k].value); medida(k, Number.isFinite(v) ? v : est[k]); render(true); });
       campos[k].addEventListener('keydown', e => {
