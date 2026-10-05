@@ -1330,6 +1330,10 @@ h1, h2, h3, p, figure, blockquote, dl, dd { margin: 0; }
   .ad-abas button { flex: none; }
   .ad-foto { width: min(86vw, 440px, calc((100svh - 300px) * .8)); }
 }
+/* sem a rolagem animada, os botões são o único jeito de ver o depois */
+@media (max-width: 1023px) and (prefers-reduced-motion: reduce) {
+  .ad-botoes { display: inline-flex; }
+}
 @media (max-width: 759px) {
   .amostras { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .sim-result { grid-template-columns: repeat(2, minmax(0, 1fr)); }

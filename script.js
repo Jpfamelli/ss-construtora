@@ -60,6 +60,8 @@
     tickTopo = 0;
     const y = scrollY;
     topo.classList.toggle('solido', y > 30 || menuAberto);
+    // com a rolagem travada (menu, galeria) o scrollY é 0: não serve de referência
+    if (travas > 0) return;
     if (!menuAberto) {
       if (y > 420 && y > yAnt + 6) topo.classList.add('recolhido');
       else if (y < yAnt - 6 || y < 420) topo.classList.remove('recolhido');
@@ -351,6 +353,18 @@
   if (!comPre) setTimeout(pronto, 60);
   else (() => {
     const pre = $('.pre');
+    // JS atrasado (celular lento): a rede de segurança do CSS já está tirando a
+    // abertura; em vez de montar o piso de novo, ela some de uma vez
+    const rede = pre.getAnimations ? pre.getAnimations().find(a => a.animationName === 'preSai') : null;
+    const nav = performance.getEntriesByType ? performance.getEntriesByType('navigation')[0] : null;
+    const ja = Math.max((rede && rede.currentTime) || 0, nav ? performance.now() - nav.responseStart : 0);
+    if (ja > 2400 || (rede && rede.playState === 'finished')) {
+      pre.style.transition = 'opacity .35s ease';
+      pre.style.opacity = '0';
+      pronto();
+      setTimeout(() => doc.classList.remove('pre-on'), 400);
+      return;
+    }
     const grade = $('.pre-pisos', pre);
     const pctEl = $('[data-pre-pct]', pre), barraEl = $('[data-pre-barra]', pre);
     const lado = innerWidth < 700 ? 96 : 150;
@@ -377,8 +391,9 @@
     const img = new Image();
     const foto = new Promise(res => { img.onload = () => (img.decode ? img.decode().catch(() => {}) : Promise.resolve()).then(res); img.onerror = res; img.src = 'img/hero/escada-noite.webp'; });
     const fontes = document.fonts ? document.fonts.ready : Promise.resolve();
-    const minimo = new Promise(r => setTimeout(r, 1150));
-    const teto = new Promise(r => setTimeout(r, 2700));
+    // tempos contados desde a chegada do HTML, não desde a execução do script
+    const minimo = new Promise(r => setTimeout(r, Math.max(500, 1150 - ja)));
+    const teto = new Promise(r => setTimeout(r, Math.max(900, 2700 - ja)));
     Promise.race([Promise.all([foto, fontes, minimo]), teto]).then(() => {
       fim = true;
       setTimeout(() => {
@@ -630,7 +645,10 @@
         trocar((i + (e.key === 'ArrowRight' ? 1 : -1) + abas.length) % abas.length, true);
       });
     });
-    PARES.slice(1).forEach(p => setTimeout(() => { carregar(p.antes); carregar(p.depois); }, 4000));
+    // as outras duas obras só baixam quando o visitante se aproxima da seção
+    const preCarregar = () => PARES.slice(1).forEach(p => { carregar(p.antes); carregar(p.depois); });
+    if (temIO) new IntersectionObserver((ents, o) => { if (ents.some(en => en.isIntersecting)) { o.disconnect(); preCarregar(); } }, { rootMargin: '1500px 0px' }).observe(sec);
+    else setTimeout(preCarregar, 4000);
     const progresso = () => {
       const r = pista.getBoundingClientRect();
       const total = r.height - innerHeight;
@@ -959,6 +977,18 @@
         `<g transform="rotate(-90 ${f1(xc)} ${f1(y0 + h / 2)})"><rect x="${f1(xc - 44 * e)}" y="${f1(y0 + h / 2 - 11 * e)}" width="${rw}" height="${rh}" rx="4"/><text ${fs} x="${f1(xc)}" y="${f1(y0 + h / 2 + 5 * e)}" text-anchor="middle">${fmt(est.larg)} m</text></g></g>` +
         `<text class="rotulo-area" style="font-size:${f1(30 * e)}px" x="${f1(x0 + w / 2)}" y="${f1(y0 + h / 2 + 6 * e)}" text-anchor="middle">${fmt(c.area)} m²</text>` +
         `<text class="rotulo-area-sub" style="font-size:${f1(11 * e)}px" x="${f1(x0 + w / 2)}" y="${f1(y0 + h / 2 + 26 * e)}" text-anchor="middle">${c.pecas} PEÇAS COM PERDA</text>`;
+      // cômodo estreito: os rótulos encurtam/encolhem para não invadir as cotas
+      const caber = (t, curto) => {
+        if (!t || !t.getComputedTextLength) return;
+        const lim = w - 16;
+        let len = t.getComputedTextLength();
+        if (!len || len <= lim) return;
+        if (curto) { t.textContent = curto; len = t.getComputedTextLength(); if (len <= lim) return; }
+        if (curto && lim / len < .5) { t.remove(); return; }
+        t.style.fontSize = f1(parseFloat(t.style.fontSize) * Math.max(.45, lim / len)) + 'px';
+      };
+      caber($('.rotulo-area', svg));
+      caber($('.rotulo-area-sub', svg), `${c.pecas} PEÇAS`);
       svg.classList.remove('anima');
       if (animar && !reduz) { void svg.getBoundingClientRect(); svg.classList.add('anima'); }
     };
@@ -966,7 +996,13 @@
     const render = animar => { const c = conta(); texto(c, animar); planta(c, animar && visto); };
 
     Object.keys(campos).forEach(k => {
-      campos[k].addEventListener('focus', () => requestAnimationFrame(() => campos[k].select()));
+      // seleciona tudo no foco (digitar substitui a medida); o mouseup do clique
+      // que deu o foco desfaria a seleção, então só esse é anulado
+      let recemFocado = false;
+      campos[k].addEventListener('focus', () => { campos[k].select(); recemFocado = true; });
+      campos[k].addEventListener('mouseup', e => { if (recemFocado) e.preventDefault(); recemFocado = false; });
+      campos[k].addEventListener('keydown', () => { recemFocado = false; });
+      campos[k].addEventListener('blur', () => { recemFocado = false; });
       campos[k].addEventListener('input', () => { const v = ler(campos[k].value); if (Number.isFinite(v) && v >= MIN && v <= MAX) { medida(k, v, 'campo'); render(false); } });
       campos[k].addEventListener('change', () => { const v = ler(campos[k].value); medida(k, Number.isFinite(v) ? v : est[k]); render(true); });
       campos[k].addEventListener('keydown', e => {
@@ -1032,9 +1068,45 @@
     const cartao = $('[data-mapa-cartao]', fig), cimg = $('img', cartao), ctxt = $('span', cartao);
     // no celular o mapa aproxima o miolo (Mogi, Suzano, Santo André)
     const svgMapa = $('svg', fig), vbOriginal = svgMapa.getAttribute('viewBox');
-    const enquadrar = () => svgMapa.setAttribute('viewBox', innerWidth < 760 ? '120 150 700 540' : vbOriginal);
+    const VB_CEL = [120, 130, 700, 540];
+    const desloc = g => { const m = /translate\(([-\d.]+)[ ,]+([-\d.]+)\)/.exec(g.getAttribute('transform')) || [0, 0, 0]; return [Number(m[1]), Number(m[2])]; };
+    const caixa = (t, tx, ty) => { let b; try { b = t.getBBox(); } catch (e) { return null; } return b.width ? { x: tx + b.x, y: ty + b.y, w: b.width, h: b.height } : null; };
+    const refs = $$('.ref', svgMapa).map(g => {
+      const t = $('text', g), [tx, ty] = desloc(g);
+      return { g, t, tx, ty, x: t.getAttribute('x'), y: t.getAttribute('y'), anc: t.getAttribute('text-anchor') };
+    });
+    const marcosTxt = $$('.marco-mapa', svgMapa).flatMap(g => { const [tx, ty] = desloc(g); return $$('text', g).map(t => () => caixa(t, tx, ty)); });
+    // no recorte do celular, o rótulo que sairia pela borda ou cairia em cima de outro
+    // texto tenta o outro lado, depois embaixo e em cima do ponto; se nada servir, some
+    const ajustarRefs = vb => {
+      const pos = (r, x, y, a) => { r.t.setAttribute('x', x); r.t.setAttribute('y', y); r.t.setAttribute('text-anchor', a); };
+      refs.forEach(r => { pos(r, r.x, r.y, r.anc); r.g.style.display = ''; });
+      if (!vb) return;
+      const [vx, vy, vw, vh] = vb;
+      const dentro = b => !b || (b.x >= vx + 4 && b.x + b.w <= vx + vw - 4 && b.y >= vy + 4 && b.y + b.h <= vy + vh - 4);
+      const ocupadas = marcosTxt.map(f => f()).filter(Boolean);
+      const livre = r => {
+        const b = caixa(r.t, r.tx, r.ty);
+        if (!b) return true;
+        if (!dentro(b) || ocupadas.some(o => b.x < o.x + o.w + 3 && o.x < b.x + b.w + 3 && b.y < o.y + o.h + 2 && o.y < b.y + b.h + 2)) return false;
+        ocupadas.push(b);
+        return true;
+      };
+      // quem não cabe na posição original escolhe primeiro; os outros se acomodam depois
+      const ordem = refs.map(r => ({ r, cabe: dentro(caixa(r.t, r.tx, r.ty)) })).sort((a, b) => a.cabe - b.cabe).map(o => o.r);
+      ordem.forEach(r => {
+        const opcoes = [[r.x, r.y, r.anc], [String(-Number(r.x)), r.y, r.anc === 'end' ? 'start' : 'end'], ['0', '22', 'middle'], ['0', '-10', 'middle']];
+        if (!opcoes.some(p => { pos(r, ...p); return livre(r); })) r.g.style.display = 'none';
+      });
+    };
+    const enquadrar = () => {
+      const cel = innerWidth < 760;
+      svgMapa.setAttribute('viewBox', cel ? VB_CEL.join(' ') : vbOriginal);
+      ajustarRefs(cel ? VB_CEL : null);
+    };
     enquadrar();
     addEventListener('resize', enquadrar);
+    document.fonts?.ready.then(enquadrar);
     if (temIO && SHOT === null && !reduz) new IntersectionObserver(([en], o) => { if (en.isIntersecting) { fig.classList.add('in'); o.disconnect(); } }, { threshold: .3 }).observe(fig);
     else fig.classList.add('in');
     const mostrar = (x, y, foto, txt) => {
